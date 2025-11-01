@@ -320,3 +320,24 @@ plt.subplot(234); plt.imshow(np.vstack([np.hstack([cA, cH]), np.hstack([cV, cD])
 plt.subplot(235); plt.imshow(np.uint8(idwt), cmap='gray'); plt.title("IDWT"); plt.axis('off')
 
 plt.tight_layout();
+
+4-
+
+def skeletonization_custom(img, kernel=None):
+    if kernel is None:
+        kernel = cv2.getStructuringElement(cv2.MORPH_CROSS, (3,3))
+
+    img = (img > 0).astype(np.uint8) * 255
+    skeleton = np.zeros_like(img)
+    temp = np.zeros_like(img)
+
+    while True:
+        eroded = cv2.erode(img, kernel)
+        opened = cv2.dilate(eroded, kernel)
+        temp = cv2.subtract(img, opened)
+        skeleton = cv2.bitwise_or(skeleton, temp)
+        img = eroded.copy()
+        if cv2.countNonZero(img) == 0:
+            break
+
+    return skeleton
