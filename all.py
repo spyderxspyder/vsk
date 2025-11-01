@@ -341,3 +341,101 @@ def skeletonization_custom(img, kernel=None):
             break
 
     return skeleton
+
+5-
+
+# ========================= TRANSFORM ========================================
+
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Load grayscale image
+img = cv2.imread('/content/sample.jpg', cv2.IMREAD_GRAYSCALE)
+if img is None:
+    raise FileNotFoundError("Image not found! Please check the path.")
+
+# ========== 1. FOURIER TRANSFORM ==========
+f = np.fft.fft2(img)
+fshift = np.fft.fftshift(f)
+magnitude_spectrum = 20 * np.log(np.abs(fshift) + 1)
+
+# Inverse FFT
+f_ishift = np.fft.ifftshift(fshift)
+img_reconstructed_fft = np.abs(np.fft.ifft2(f_ishift))
+
+# ========== 2. DISCRETE COSINE TRANSFORM (DCT) ==========
+dct = cv2.dct(np.float32(img))
+dct_log = np.log(np.abs(dct) + 1)
+img_reconstructed_dct = cv2.idct(dct)
+
+# ========== 3. MANUAL HAAR WAVELET TRANSFORM ==========
+def haar_wavelet_transform(image):
+    img = np.float32(image)
+    h, w = img.shape
+    low_rows = (img[:, 0::2] + img[:, 1::2]) / 2
+    high_rows = (img[:, 0::2] - img[:, 1::2]) / 2
+    cA = (low_rows[0::2, :] + low_rows[1::2, :]) / 2
+    cH = (high_rows[0::2, :] + high_rows[1::2, :]) / 2
+    cV = (low_rows[0::2, :] - low_rows[1::2, :]) / 2
+    cD = (high_rows[0::2, :] - high_rows[1::2, :]) / 2
+    return cA, cH, cV, cD
+
+cA, cH, cV, cD = haar_wavelet_transform(img)
+
+def inverse_haar_wavelet(cA, cH, cV, cD):
+    reconstructed = np.zeros((cA.shape[0]*2, cA.shape[1]*2), dtype=np.float32)
+    reconstructed[0::2, 0::2] = cA + cH + cV + cD
+    reconstructed[0::2, 1::2] = cA - cH + cV - cD
+    reconstructed[1::2, 0::2] = cA + cH - cV - cD
+    reconstructed[1::2, 1::2] = cA - cH - cV + cD
+    return reconstructed / 2
+
+img_reconstructed_dwt = inverse_haar_wavelet(cA, cH, cV, cD)
+
+# ========== 4. HOUGH TRANSFORM ==========
+edges = cv2.Canny(img, 100, 200)
+
+# --- Hough Lines ---
+lines_img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+lines = cv2.HoughLines(edges, 1, np.pi / 180, 150)
+if lines is not None:
+    for rho, theta in lines[:, 0]:
+        a, b = np.cos(theta), np.sin(theta)
+        x0, y0 = a * rho, b * rho
+        x1, y1 = int(x0 + 1000 * (-b)), int(y0 + 1000 * (a))
+        x2, y2 = int(x0 - 1000 * (-b)), int(y0 - 1000 * (a))
+        cv2.line(lines_img, (x1, y1), (x2, y2), (0, 0, 255), 1)
+
+# --- Hough Circles ---
+circles_img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+circles = cv2.HoughCircles(img, cv2.HOUGH_GRADIENT, 1, 30,
+                           param1=100, param2=30, minRadius=10, maxRadius=100)
+if circles is not None:
+    circles = np.uint16(np.around(circles))
+    for i in circles[0, :]:
+        cv2.circle(circles_img, (i[0], i[1]), i[2], (0, 255, 0), 2)
+        cv2.circle(circles_img, (i[0], i[1]), 2, (0, 0, 255), 3)
+
+# ========== DISPLAY RESULTS ==========
+plt.figure(figsize=(14, 12))
+
+plt.subplot(4, 3, 1), plt.imshow(img, cmap='gray'), plt.title('Original')
+plt.subplot(4, 3, 2), plt.imshow(magnitude_spectrum, cmap='gray'), plt.title('FFT Spectrum')
+plt.subplot(4, 3, 3), plt.imshow(img_reconstructed_fft, cmap='gray'), plt.title('Inverse FFT')
+
+plt.subplot(4, 3, 4), plt.imshow(dct_log, cmap='gray'), plt.title('DCT (log scale)')
+plt.subplot(4, 3, 5), plt.imshow(img_reconstructed_dct, cmap='gray'), plt.title('Inverse DCT')
+
+plt.subplot(4, 3, 6), plt.imshow(cA, cmap='gray'), plt.title('DWT Approximation (cA)')
+plt.subplot(4, 3, 7), plt.imshow(cH, cmap='gray'), plt.title('DWT Horizontal (cH)')
+plt.subplot(4, 3, 8), plt.imshow(cV, cmap='gray'), plt.title('DWT Vertical (cV)')
+plt.subplot(4, 3, 9), plt.imshow(cD, cmap='gray'), plt.title('DWT Diagonal (cD)')
+
+plt.subplot(4, 3, 10), plt.imshow(edges, cmap='gray'), plt.title('Canny Edges')
+plt.subplot(4, 3, 11), plt.imshow(cv2.cvtColor(lines_img, cv2.COLOR_BGR2RGB)), plt.title('Hough Lines')
+plt.subplot(4, 3, 12), plt.imshow(cv2.cvtColor(circles_img, cv2.COLOR_BGR2RGB)), plt.title('Hough Circles')
+
+plt.tight_layout()
+plt.show()
+
